@@ -1,0 +1,171 @@
+---
+title: "Predicción de la malignidad/benignidad de un cáncer de mama usando Redes Neuronales Artificiales (ANN)"
+author: "Juan Manuel Vega Arias"
+date: '`r format(Sys.Date(),"%e de %B, %Y")`'
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    css: custom.css
+    keep_md: true
+    toc_float: true
+  pdf_document:
+    toc: true
+    toc_depth: 3
+bibliography: deepLearning_cita.bib
+link-citations: yes
+---
+```{r libraries, include=FALSE}
+library("class")
+library("knitr")
+library("neuralnet")
+library("NeuralNetTools")
+library("nnet")
+library("caret")
+library("e1071")
+library("kableExtra")
+```
+
+
+# Redes Neuronales Artificiales (ANN)
+
+En la **estructura jerarquizada** que compone el cuerpo de la **Inteligencia Artificial**, tenemos varias subdivisiones entre las cuales está el **Aprendizaje Automático**. Este a su vez se divide en **Aprendizaje Supervisado, No Supervisado y Aprendizaje Reforzado**. El Aprendizaje Supervisado se subdivide en varias categorías, una de estas categorías es **Aprendizaje Profundo (Deep Learning) y Aprendizaje Superficial (Shallow Learning)** es otra. El Aprendizaje Profundo a la vez se subdivide en otras categorías, una de estas categorías son las **Redes Neuronales Artificiales (Artificial Neural Networks)**. 
+
+Estas fueron diseñadas como modelos computacionales de neuronas humanas por el neurofisiólogo **Warren McCulloch** y el neurocientífico computacinal **Walter Pitts**, y al igual que el cerebro se compone de las neuronas, las redes neuronales se componen de unos nodos, que funcionan conectados unos a otros formando una red, esta red de nodos trabaja conjuntamente para estimar un resultado que se ajuste a un modelo no lineal con el mínimo error posible. 
+
+## Arquitectura de las ANN Superficiales
+Las redes neuronales se estructuran por capas en forma de una columna de nodos. La primera capa es la **Capa de Input**, las **Capas Intermedias**, a partir de la segunda capa, son las llamadas **Capas Ocultas** (Hidden Layers) y la última, es la **Capa de Output**. Aunque siempre tendremos una Capa de Input y una Capa de Output, puede haber más de una Capa Oculta, pero en la versión más descafeinada de redes neuronales sólo tenemos una, este modelo es llamado **Perceptrón Multicapa o Multilayer Perceptron (MLP)**.
+
+![Multilayer Perceptron](https://upload.wikimedia.org/wikipedia/commons/6/64/RedNeuronalArtificial.png)
+
+Cada uno de los nodos de la capa de input representa una de las características que tendremos en cuenta para hacer la predicción. Cada uno de estos nodos está conectado a todos y cada uno de los nodos de la capa siguiente.  
+
+Dependiendo del peso asignado a cada uno de los nodos de la capa de input, las neuronas de una capa envían señales de valores diferentes, a las neuronas de la capa siguiente, estas señales se computan en el soma de la neurona receptora y según el resultado de este cálculo, la neurona enviará una señal a la siguiente neurona y así pasando por las diferentes capas hasta llegar al output. 
+
+### Backpropagation
+Al comparar el output con el set de entrenamiento, los errores cometidos en los pesos asignados a las diferentes características son ajustados en cada nodo para reducir el error al mínimo. Gracias a esto las redes neuronales pueden ajustar sus predicciones a patrones no lineales que son a la vez más complejos y más parecidos a los que se dan en condiciones naturales. Dicha capacidad para extraer patrones complejos está directamente relacionada con el número de capas que formen el modelo.
+
+
+```{r chuck 1, echo=FALSE, warning=FALSE, message=FALSE}
+Fortalezas<-c("Adaptabilidad a problemas de clasificación o predicción numérica",
+              "Capacidad de modelar patrones complejos",
+              "Localiza relaciones subyacentes")
+Debilidades<-c("Lento de entrenar",
+              "Propenso a sobreajustar los datos de entrenamiento",
+              "Difícil de interpretar")
+Table_Info1<-as.data.frame(cbind(Fortalezas,Debilidades))
+kable(Table_Info1)
+```
+
+
+# Caso Estudio
+
+Predicción de la malignidad/benignidad de un cáncer de mama usando Redes Neuronales Artificiales
+
+## Paso 1 - Recolección de datos
+
+Dataset:
+Se ha registrado la información de 9 variables biológicas y el tipo de cáncer: benign / malignant en 683 canceres de mama estos se recogen en el fichero BreastCancer2.csv. Los valores de las 9 variables biológicas predictoras son ordinales de 0 a 10. 
+
+Objetivo:
+Se quiere predecir el tipo de cáncer de mama (benigno/maligno) en función de las variables biológicas del cáncer de mama.
+
+## Paso 2 - Exploración y preparación de datos
+
+```{r}
+breCan <- read.csv("BreastCancer2.csv")
+str(breCan)
+```
+Ordenamos los datos al azar para no tener que hacerlo aguas abajo
+
+```{r}
+set.seed(12345)
+shuffle <- sample(nrow(breCan),nrow(breCan))
+breCan <- breCan[shuffle,]
+```
+
+
+ Aunque todos los valores están entre el 1 y el 10, resultaría más conveniente que estuviesen entre 0 y 1 así que procedemos a la normalización de los datos. Para ello construimos la función `normalizar` de la siguente forma.
+```{r}
+normalizar <- function(x) {
+    return((x - min(x)) / (max(x) - min(x)))
+}
+```
+
+la función neuralnet no admite variables factor o categóricas. Por tanto, hay que transforma la variable “tipo de cáncer” a binaria. Para este cometido, se debe crear dos variables que sustituyen a la variable original. Una será la variable cáncer benigno (B) que tiene valores (TRUE o 1) en los casos “benignos” y (FALSE o 0) en los casos malignos. De manera semejante, pero contraria se crea la variable cáncer maligno (M). 
+```{r}
+# Nos deshacemos del factor para transformarlo
+BCan <- breCan[,-10]
+# Cambiamos al factor por dos valores B y M cada uno con los valores posibles 0 y 1
+mm <- model.matrix(~Class-1, breCan)
+head(mm)
+colnames(mm) <- c("B","M")
+
+# Normalizamos los datos con la función `lapply()`
+BCan_norm <- as.data.frame(lapply(BCan, normalizar))
+# Unimos los resultados de ambas transformaciones en una nueva matriz
+breCan_norm <- cbind(BCan_norm,mm)
+# Comprobamos que todas las variables están dentro de los rangos deseados
+str(breCan_norm)
+```
+
+Pasamos a crear los sets de entrenamiento y prueba de forma desordenada
+```{r}
+brca_entreno <- breCan_norm[1:455,]
+brca_prueba <- breCan_norm[456:683,]
+head(brca_entreno)
+```
+## Paso 3 - Entrenamiento del modelo sobre los datos
+
+Preparamos la ANN. Empezaremos entrenando una simple MLP feedforward. Antes de utilizar la función `neuralnet()` utilizamos como semilla generadora de los pesos iniciales el valor de set.seed(123).
+```{r}
+set.seed(123)
+BC_model <- neuralnet( M + B ~ Cl.thickness + Cell.size + Cell.shape + Marg.adhesion + Epith.c.size + Bare.nuclei + Bl.cromatin + Normal.nucleoli + Mitoses, data = brca_entreno, hidden = 1)
+plot(BC_model)
+```
+
+## Paso 4 - Evaluación del rendimiento del modelo
+
+Para ver como actúa el modelo sobre el data set de prueba utilizaremos la función `compute()` de la siguiente forma:
+```{r}
+resultado_modelo <- compute(BC_model, brca_prueba[1:9])
+# De los dos componentes que retorna la función compute() utilizamos $net.result que almacena los valores previstos
+breastcancer_prevision <- resultado_modelo$net.result
+
+# Con la funcion cor() vemos la correlación entre dos vectores numéricos.
+cor(breastcancer_prevision,brca_prueba$M )
+
+cor(breastcancer_prevision,brca_prueba$B )
+```
+
+Una correlación de 0.892 indica una realción lineal fuerte entre las dos variables, esto significa que nuestro modelo está haciendo un buen trabajo incluso con solo una capa oculta.
+
+## Paso 5 - Mejora de los resultados del modelo
+
+Teniendo en cuenta que para nuestro modelo hemos usado solo un nodo oculto, es muy probable que lo podamos mejorar.
+Como ya hemos dicho, las ANN con arquitecturas más complejas son capaces de abstraer conceptos más difíciles. Vamos a probar a incrementar la complejidad de la nuestra. Cambiaremos tan solo el valor del argumento `hidden = 5` 
+
+```{r}
+set.seed(123)
+BC_model2 <- neuralnet( M + B ~ Cl.thickness + Cell.size + Cell.shape + Marg.adhesion + Epith.c.size + Bare.nuclei + Bl.cromatin + Normal.nucleoli + Mitoses, data = brca_entreno, hidden = 3)
+plot(BC_model2)
+```
+
+Vamos a comparar correlación como hicimos antes
+```{r}
+resultado_modelo2 <- compute(BC_model2, brca_prueba[1:9])
+# De los dos componentes que retorna la función compute() utilizamos $net.result que almacena los valores previstos
+breastcancer_prevision2 <- resultado_modelo2$net.result
+
+# Con la funcion cor() vemos la correlación entre dos vectores numéricos.
+cor(breastcancer_prevision2,brca_prueba$M )
+
+cor(breastcancer_prevision2,brca_prueba$B )
+
+
+```
+Podemos ver que con relativamente poco esfuerzo hemos conseguido subir la calidad de nuestras predicciones hasta un error bastante bajo, comparable al de un experto en la materia.
+
+
+
+
